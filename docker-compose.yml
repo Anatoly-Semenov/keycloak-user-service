@@ -9,6 +9,8 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/user_auth_db
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
       - KEYCLOAK_AUTH_SERVER_URL=http://keycloak:8080
       - KEYCLOAK_REALM=user-auth
       - KEYCLOAK_RESOURCE=user-auth-client
@@ -16,6 +18,9 @@ services:
     depends_on:
       - postgres
       - keycloak
+      - redis
+    deploy:
+      replicas: 2
 
   postgres:
     image: postgres:15-alpine
@@ -43,5 +48,14 @@ services:
     depends_on:
       - postgres
 
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
-  postgres_data: 
+  postgres_data:
+  redis_data: 

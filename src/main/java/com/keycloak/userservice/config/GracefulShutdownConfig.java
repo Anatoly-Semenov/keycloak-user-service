@@ -1,6 +1,8 @@
 package com.keycloak.userservice.config;
 
 import org.apache.catalina.connector.Connector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.embedded.tomcat.TomcatConnectorCustomizer;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
@@ -13,11 +15,11 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import lombok.extern.slf4j.Slf4j;
-
 @Configuration
-@Slf4j
 public class GracefulShutdownConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(GracefulShutdownConfig.class);
+    private static final long SHUTDOWN_TIMEOUT = 30;
 
     @Bean
     public GracefulShutdown gracefulShutdown() {
@@ -30,41 +32,44 @@ public class GracefulShutdownConfig {
     }
 
     public static class GracefulShutdown implements TomcatConnectorCustomizer, ApplicationListener<ContextClosedEvent> {
-
-        private static final long SHUTDOWN_TIMEOUT = 30; // секунды
+        private static final Logger log = LoggerFactory.getLogger(GracefulShutdown.class);
+        
         private volatile Connector connector;
 
         @Override
         public void customize(Connector connector) {
             this.connector = connector;
+            log.info("Tomcat connector initialized for graceful shutdown");
         }
 
         @Override
         public void onApplicationEvent(ContextClosedEvent event) {
-            if (this.connector == null) {
-                return;
-            }
-
-            log.info("Запуск процедуры graceful shutdown...");
-            this.connector.pause();
-
-            Executor executor = this.connector.getProtocolHandler().getExecutor();
-            if (executor instanceof ThreadPoolExecutor threadPoolExecutor) {
-                try {
-                    log.info("Ожидание завершения выполнения активных запросов...");
-                    threadPoolExecutor.shutdown();
-                    if (!threadPoolExecutor.awaitTermination(SHUTDOWN_TIMEOUT, TimeUnit.SECONDS)) {
-                        log.warn("Некоторые запросы не завершились в течение {}с, принудительное завершение", SHUTDOWN_TIMEOUT);
-                        threadPoolExecutor.shutdownNow();
-                    } else {
-                        log.info("Все запросы успешно завершены");
+            log.info("Starting graceful shutdown of Tomcat with timeout {} seconds", SHUTDOWN_TIMEOUT);
+            
+            try {
+                if (this.connector != null) {
+                    this.connector.pause();
+                    log.info("Paused connector successfully");
+                    
+                    Executor executor = this.connector.getProtocolHandler().getExecutor();
+                    if (executor instanceof ThreadPoolExecutor) {
+                        ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) executor;
+                        log.info("Active threads: {}", threadPoolExecutor.getActiveCount());
+                        
+                        threadPoolExecutor.shutdown();
+                        if (!threadPoolExecutor.awaitTermination(SHUTDOWN_TIMEOUT, TimeUnit.SECONDS)) {
+                            log.warn("Tomcat thread pool did not shut down gracefully within {} seconds. Proceeding with forced shutdown", SHUTDOWN_TIMEOUT);
+                            threadPoolExecutor.shutdownNow();
+                        } else {
+                            log.info("Tomcat thread pool shut down gracefully");
+                        }
                     }
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    log.error("Прерывание во время graceful shutdown", ex);
+                } else {
+                    log.warn("No Tomcat connector found for graceful shutdown");
                 }
+            } catch (Exception ex) {
+                log.error("Error during graceful shutdown of Tomcat", ex);
             }
-            log.info("Graceful shutdown завершен успешно");
         }
     }
 } 

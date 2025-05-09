@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-auth-service
+  labels:
+    app: user-auth-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: user-auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: user-auth-service
+    spec:
+      containers:
+      - name: user-auth-service
+        image: ${DOCKER_REGISTRY}/user-auth-service:${IMAGE_TAG}
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: db.url
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: user-auth-service-secrets
+              key: db.username
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: user-auth-service-secrets
+              key: db.password
+        - name: SPRING_REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: redis.host
+        - name: SPRING_REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: redis.port
+        - name: KEYCLOAK_AUTH_SERVER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: keycloak.url
+        - name: KEYCLOAK_REALM
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: keycloak.realm
+        - name: KEYCLOAK_RESOURCE
+          valueFrom:
+            configMapKeyRef:
+              name: user-auth-service-config
+              key: keycloak.client
+        - name: KEYCLOAK_CREDENTIALS_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: user-auth-service-secrets
+              key: keycloak.secret
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 15 
