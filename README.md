@@ -107,6 +107,48 @@ make keycloak-setup
 
 ## API Endpoints
 
+### Аутентификация и регистрация
+
+- `POST /api/v1/auth/register` - Регистрация нового пользователя
+  ```json
+  {
+    "username": "newuser",
+    "email": "user@example.com",
+    "password": "password123",
+    "firstName": "Имя",
+    "lastName": "Фамилия",
+    "phoneNumber": "+79001234567"
+  }
+  ```
+
+- `POST /api/v1/auth/login` - Авторизация пользователя
+  ```json
+  {
+    "username": "username",
+    "password": "password"
+  }
+  ```
+
+- `POST /api/v1/auth/refresh` - Обновление токена
+  ```json
+  {
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+  ```
+
+Все эндпоинты аутентификации возвращают следующий формат ответа:
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "bearer",
+  "expiresIn": 300,
+  "refreshExpiresIn": 1800,
+  "userId": "f1234567-89ab-cdef-0123-456789abcdef",
+  "roles": ["user"]
+}
+```
+
 ### Пользовательские эндпоинты
 
 - `GET /api/v1/me` - Получение профиля текущего пользователя
