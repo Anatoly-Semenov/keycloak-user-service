@@ -5,10 +5,18 @@ import com.keycloak.userservice.dto.AuthResponseDTO;
 import com.keycloak.userservice.dto.RefreshTokenRequestDTO;
 import com.keycloak.userservice.dto.RegistrationRequestDTO;
 import com.keycloak.userservice.dto.KeycloakUserDTO;
+import com.keycloak.userservice.dto.SimpleAuthRequestDTO;
 import com.keycloak.userservice.util.CreatedResponseUtil;
 import com.keycloak.userservice.util.DistributedLockUtil;
+import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.ClientBuilder;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.client.WebTarget;
+import jakarta.ws.rs.core.Form;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
 import org.keycloak.admin.client.resource.UserResource;
@@ -30,8 +38,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
-@Slf4j
 public class AuthService {
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    
     private final Keycloak adminKeycloak;
     private final String authServerUrl;
     private final String realm;
@@ -60,7 +69,12 @@ public class AuthService {
     }
 
     public AuthResponseDTO login(AuthRequestDTO request) {
-        String lockKey = LOGIN_LOCK_PREFIX + request.getUsername();
+        // Создаем простой объект с геттерами
+        SimpleAuthRequestDTO simpleRequest = new SimpleAuthRequestDTO();
+        simpleRequest.setUsername(request.username);
+        simpleRequest.setPassword(request.password);
+        
+        String lockKey = LOGIN_LOCK_PREFIX + simpleRequest.getUsername();
         
         return lockUtil.executeWithLock(lockKey, () -> {
             try {
@@ -69,14 +83,14 @@ public class AuthService {
                         .realm(realm)
                         .clientId(clientId)
                         .clientSecret(clientSecret)
-                        .username(request.getUsername())
-                        .password(request.getPassword())
+                        .username(simpleRequest.getUsername())
+                        .password(simpleRequest.getPassword())
                         .build();
 
                 AccessTokenResponse tokenResponse = keycloak.tokenManager().getAccessToken();
                 
                 // Получаем информацию о пользователе через админский клиент
-                List<UserRepresentation> users = adminKeycloak.realm(realm).users().search(request.getUsername(), true);
+                List<UserRepresentation> users = adminKeycloak.realm(realm).users().search(simpleRequest.getUsername(), true);
                 if (users.isEmpty()) {
                     throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Пользователь не найден");
                 }
@@ -87,15 +101,15 @@ public class AuthService {
                         .map(RoleRepresentation::getName)
                         .collect(Collectors.toList());
 
-                return AuthResponseDTO.builder()
-                        .accessToken(tokenResponse.getToken())
-                        .refreshToken(tokenResponse.getRefreshToken())
-                        .tokenType(tokenResponse.getTokenType())
-                        .expiresIn(tokenResponse.getExpiresIn())
-                        .refreshExpiresIn(tokenResponse.getRefreshExpiresIn())
-                        .userId(userId)
-                        .roles(roles)
-                        .build();
+                AuthResponseDTO response = new AuthResponseDTO();
+                response.accessToken = tokenResponse.getToken();
+                response.refreshToken = tokenResponse.getRefreshToken();
+                response.tokenType = tokenResponse.getTokenType();
+                response.expiresIn = tokenResponse.getExpiresIn();
+                response.refreshExpiresIn = tokenResponse.getRefreshExpiresIn();
+                response.userId = userId;
+                response.roles = roles;
+                return response;
             } catch (Exception e) {
                 log.error("Ошибка при аутентификации пользователя", e);
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Неверные учетные данные");
@@ -104,36 +118,41 @@ public class AuthService {
     }
 
     public AuthResponseDTO refreshToken(RefreshTokenRequestDTO request) {
-        String lockKey = REFRESH_LOCK_PREFIX + request.getRefreshToken().hashCode();
+        String refreshToken = request.refreshToken;
+        String lockKey = REFRESH_LOCK_PREFIX + refreshToken.hashCode();
         
         return lockUtil.executeWithLock(lockKey, () -> {
             try {
-                // Создаем новый экземпляр клиента Keycloak для обновления токена
-                Keycloak keycloak = KeycloakBuilder.builder()
-                        .serverUrl(authServerUrl)
-                        .realm(realm)
-                        .clientId(clientId)
-                        .clientSecret(clientSecret)
-                        .grantType("refresh_token")
-                        .refreshToken(request.getRefreshToken())
-                        .build();
-
-                // Получаем новый токен
-                AccessTokenResponse tokenResponse = keycloak.tokenManager().getAccessToken();
+                // Для обновления токена используем REST API напрямую, так как Keycloak API имеет ограничения
+                Client client = ClientBuilder.newClient();
                 
-                // Получаем информацию о пользователе из токена
-                // Т.к. мы не можем напрямую получить userId из токена, используем поиск по имени пользователя
-                // Для этого нам нужно было бы декодировать JWT токен, но в этом примере
-                // мы просто возвращаем роли и токены без userId
+                WebTarget target = client.target(authServerUrl)
+                        .path("/realms/" + realm + "/protocol/openid-connect/token");
                 
-                return AuthResponseDTO.builder()
-                        .accessToken(tokenResponse.getToken())
-                        .refreshToken(tokenResponse.getRefreshToken())
-                        .tokenType(tokenResponse.getTokenType())
-                        .expiresIn(tokenResponse.getExpiresIn())
-                        .refreshExpiresIn(tokenResponse.getRefreshExpiresIn())
-                        .roles(Collections.emptyList()) // В реальном приложении нужно декодировать JWT и получить роли
-                        .build();
+                Form form = new Form();
+                form.param("client_id", clientId);
+                form.param("client_secret", clientSecret);
+                form.param("grant_type", "refresh_token");
+                form.param("refresh_token", refreshToken);
+                
+                Response response = target.request(MediaType.APPLICATION_FORM_URLENCODED)
+                        .post(Entity.form(form));
+                
+                if (response.getStatus() != 200) {
+                    throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Недействительный refresh токен");
+                }
+                
+                AccessTokenResponse tokenResponse = response.readEntity(AccessTokenResponse.class);
+                
+                AuthResponseDTO authResponse = new AuthResponseDTO();
+                authResponse.accessToken = tokenResponse.getToken();
+                authResponse.refreshToken = tokenResponse.getRefreshToken();
+                authResponse.tokenType = tokenResponse.getTokenType();
+                authResponse.expiresIn = tokenResponse.getExpiresIn();
+                authResponse.refreshExpiresIn = tokenResponse.getRefreshExpiresIn();
+                authResponse.roles = Collections.emptyList(); // В реальном приложении нужно декодировать JWT
+                
+                return authResponse;
             } catch (Exception e) {
                 log.error("Ошибка при обновлении токена", e);
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Недействительный refresh токен");
@@ -142,21 +161,29 @@ public class AuthService {
     }
 
     public AuthResponseDTO register(RegistrationRequestDTO request) {
-        String lockKey = REGISTER_LOCK_PREFIX + request.getUsername();
+        // Получаем данные напрямую из полей
+        String username = request.username;
+        String password = request.password;
+        String email = request.email;
+        String firstName = request.firstName;
+        String lastName = request.lastName;
+        String phoneNumber = request.phoneNumber;
+        
+        String lockKey = REGISTER_LOCK_PREFIX + username;
         
         return lockUtil.executeWithLock(lockKey, () -> {
             try {
                 UserRepresentation user = new UserRepresentation();
-                user.setUsername(request.getUsername());
-                user.setEmail(request.getEmail());
-                user.setFirstName(request.getFirstName());
-                user.setLastName(request.getLastName());
+                user.setUsername(username);
+                user.setEmail(email);
+                user.setFirstName(firstName);
+                user.setLastName(lastName);
                 user.setEmailVerified(false);
                 user.setEnabled(true);
 
                 Map<String, List<String>> attributes = new HashMap<>();
-                if (request.getPhoneNumber() != null) {
-                    attributes.put("phoneNumber", Collections.singletonList(request.getPhoneNumber()));
+                if (phoneNumber != null) {
+                    attributes.put("phoneNumber", Collections.singletonList(phoneNumber));
                 }
                 user.setAttributes(attributes);
 
@@ -170,7 +197,7 @@ public class AuthService {
                 CredentialRepresentation passwordCred = new CredentialRepresentation();
                 passwordCred.setTemporary(false);
                 passwordCred.setType(CredentialRepresentation.PASSWORD);
-                passwordCred.setValue(request.getPassword());
+                passwordCred.setValue(password);
                 
                 UserResource userResource = adminKeycloak.realm(realm).users().get(userId);
                 userResource.resetPassword(passwordCred);
@@ -178,7 +205,10 @@ public class AuthService {
                 RoleRepresentation userRole = adminKeycloak.realm(realm).roles().get("user").toRepresentation();
                 userResource.roles().realmLevel().add(Collections.singletonList(userRole));
 
-                AuthRequestDTO authRequest = new AuthRequestDTO(request.getUsername(), request.getPassword());
+                // Создаем новый запрос аутентификации после регистрации
+                AuthRequestDTO authRequest = new AuthRequestDTO();
+                authRequest.username = username;
+                authRequest.password = password;
                 return login(authRequest);
                 
             } catch (Exception e) {

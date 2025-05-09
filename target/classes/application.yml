@@ -1,5 +1,10 @@
 server:
   port: 8080
+  shutdown: graceful
+  tomcat:
+    connection-timeout: 30s
+    max-threads: 200
+    min-spare-threads: 10
 
 spring:
   datasource:
@@ -7,6 +12,11 @@ spring:
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 10000
   jpa:
     hibernate:
       ddl-auto: update
@@ -23,6 +33,8 @@ spring:
         jwt:
           issuer-uri: http://localhost:8180/realms/user-auth
           jwk-set-uri: http://localhost:8180/realms/user-auth/protocol/openid-connect/certs
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 keycloak:
   auth-server-url: http://localhost:8180
@@ -37,4 +49,11 @@ keycloak:
 rate-limit:
   enabled: true
   capacity: 100
-  time-window: 60 # seconds 
+  time-window: 60 # seconds
+
+logging:
+  level:
+    root: INFO
+    com.keycloak.userservice: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO 

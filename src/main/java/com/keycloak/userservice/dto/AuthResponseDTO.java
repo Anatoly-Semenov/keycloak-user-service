@@ -1,23 +1,28 @@
 package com.keycloak.userservice.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.List;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 public class AuthResponseDTO {
     
-    private String accessToken;
-    private String refreshToken;
-    private String tokenType;
-    private long expiresIn;
-    private long refreshExpiresIn;
-    private String userId;
-    private List<String> roles;
+    public String accessToken;
+    public String refreshToken;
+    public String tokenType;
+    public Long expiresIn;
+    public Long refreshExpiresIn;
+    public String userId;
+    public List<String> roles;
+    
+    public AuthResponseDTO() {
+    }
+    
+    public AuthResponseDTO(String accessToken, String refreshToken, String tokenType, 
+                          Long expiresIn, Long refreshExpiresIn, String userId, List<String> roles) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.tokenType = tokenType;
+        this.expiresIn = expiresIn;
+        this.refreshExpiresIn = refreshExpiresIn;
+        this.userId = userId;
+        this.roles = roles;
+    }
 } 

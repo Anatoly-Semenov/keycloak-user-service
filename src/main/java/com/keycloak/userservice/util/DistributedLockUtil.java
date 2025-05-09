@@ -1,24 +1,30 @@
 package com.keycloak.userservice.util;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class DistributedLockUtil {
-
+    
+    private static final Logger log = LoggerFactory.getLogger(DistributedLockUtil.class);
+    
     private final RedissonClient redissonClient;
     
     private static final long DEFAULT_WAIT_TIME = 10;
     private static final long DEFAULT_LEASE_TIME = 30;
     private static final TimeUnit DEFAULT_TIME_UNIT = TimeUnit.SECONDS;
+
+    @Autowired
+    public DistributedLockUtil(RedissonClient redissonClient) {
+        this.redissonClient = redissonClient;
+    }
 
     /**
      * Выполняет операцию внутри распределенной блокировки

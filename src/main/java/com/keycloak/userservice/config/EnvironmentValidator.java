@@ -1,49 +1,57 @@
 package com.keycloak.userservice.config;
 
-import jakarta.annotation.PostConstruct;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Configuration
-@Slf4j
 public class EnvironmentValidator {
 
-    private final Environment environment;
+    private static final Logger log = LoggerFactory.getLogger(EnvironmentValidator.class);
 
-    private static final List<String> REQUIRED_ENV_VARS = Arrays.asList(
-            "spring.datasource.url",
-            "spring.datasource.username",
-            "spring.datasource.password",
-            "keycloak.auth-server-url",
-            "keycloak.realm",
-            "keycloak.resource",
-            "keycloak.credentials.secret"
-    );
+    @Value("${keycloak.auth-server-url}")
+    private String keycloakServerUrl;
 
-    @Autowired
-    public EnvironmentValidator(Environment environment) {
-        this.environment = environment;
+    @Value("${keycloak.realm}")
+    private String keycloakRealm;
+
+    @Value("${keycloak.resource}")
+    private String keycloakClientId;
+
+    @Value("${keycloak.credentials.secret}")
+    private String keycloakClientSecret;
+
+    @Bean
+    public CommandLineRunner validateEnvironment() {
+        return args -> {
+            log.info("Проверка обязательных переменных окружения");
+
+            List<String> missingVars = new ArrayList<>();
+
+            checkVar(keycloakServerUrl, "KEYCLOAK_AUTH_SERVER_URL", missingVars);
+            checkVar(keycloakRealm, "KEYCLOAK_REALM", missingVars);
+            checkVar(keycloakClientId, "KEYCLOAK_RESOURCE", missingVars);
+            checkVar(keycloakClientSecret, "KEYCLOAK_CREDENTIALS_SECRET", missingVars);
+
+            if (!missingVars.isEmpty()) {
+                log.error("Отсутствуют обязательные переменные окружения: {}", String.join(", ", missingVars));
+                // В production можно раскомментировать для аварийного завершения
+                // System.exit(1);
+            } else {
+                log.info("Все обязательные переменные окружения настроены");
+            }
+        };
     }
 
-    @PostConstruct
-    public void validateEnvironment() {
-        List<String> missingEnvVars = REQUIRED_ENV_VARS.stream()
-                .filter(envVar -> environment.getProperty(envVar) == null)
-                .collect(Collectors.toList());
-
-        if (!missingEnvVars.isEmpty()) {
-            String errorMessage = "Отсутствуют обязательные переменные окружения: " + 
-                    String.join(", ", missingEnvVars);
-            log.error(errorMessage);
-            throw new IllegalStateException(errorMessage);
+    private void checkVar(String value, String name, List<String> missingVars) {
+        if (value == null || value.trim().isEmpty() || value.equals("your-client-secret")) {
+            missingVars.add(name);
         }
-
-        log.info("Все обязательные переменные окружения успешно валидированы");
     }
 } 
