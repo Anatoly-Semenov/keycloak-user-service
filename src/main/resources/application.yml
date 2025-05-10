@@ -35,6 +35,18 @@ spring:
           jwk-set-uri: http://localhost:8180/realms/user-auth/protocol/openid-connect/certs
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.trusted.packages: "com.keycloak.userservice.event"
+        spring.json.type.mapping: "userEvent:com.keycloak.userservice.event.UserEvent"
+      retries: 3
+      acks: all
+      batch-size: 16384
+      buffer-memory: 33554432
 
 keycloak:
   auth-server-url: http://localhost:8180
