@@ -20,8 +20,35 @@
 - User Service (Spring Boot приложение)
 - Keycloak (сервер аутентификации и авторизации)
 - PostgreSQL (база данных)
+- Kafka (шина событий для аудита и интеграции)
 
 ![Архитектура системы](docs/architecture.drawio.png)
+
+### Пример структуры события
+
+```json
+{
+  "id": "uuid",
+  "eventType": "USER_REGISTERED",
+  "userId": "uuid",
+  "timestamp": "2024-05-09T12:34:56Z",
+  "payload": { ... },
+  "source": "user-service",
+  "clientIp": "192.168.1.1",
+  "userAgent": "Mozilla/5.0 ..."
+}
+```
+
+### Как прослушивать события
+
+Для локального тестирования можно использовать консольный consumer:
+
+```bash
+# Пример для Docker Compose:
+docker exec -it keycloak-user-service-kafka-1 \
+  kafka-console-consumer --bootstrap-server localhost:9092 \
+  --topic user-service.events --from-beginning
+```
 
 ## Требования
 
@@ -198,6 +225,22 @@ src/
 │       └── application.yml
 └── test/
 ```
+
+## События системы (Kafka)
+
+User Service отправляет события в Kafka-топик `user-service.events` при ключевых действиях пользователей и администраторов. Это позволяет реализовать аудит, мониторинг и интеграцию с внешними системами.
+
+### Какие события отправляются
+
+- USER_REGISTERED — регистрация пользователя
+- USER_LOGGED_IN — успешный вход пользователя
+- USER_LOGIN_FAILED — неудачная попытка входа
+- PROFILE_VIEWED — просмотр профиля
+- PROFILE_UPDATED — обновление профиля
+- USER_DELETED — удаление пользователя
+- ROLE_ASSIGNED — назначение роли
+- ROLE_REMOVED — удаление роли
+- USER_LOGGED_IN (isRefresh=true) — обновление токена
 
 ### Полезные команды
 

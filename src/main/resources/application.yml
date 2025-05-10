@@ -8,23 +8,17 @@ server:
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/user_auth_db
+    url: jdbc:postgresql://localhost:5433/user_auth_db
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
   redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
-    timeout: 10000
+    host: localhost
+    port: 6380
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
-        dialect: org.hibernate.dialect.PostgreSQLDialect
   application:
     name: user-auth-service
   security:
@@ -35,9 +29,21 @@ spring:
           jwk-set-uri: http://localhost:8180/realms/user-auth/protocol/openid-connect/certs
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  kafka:
+    bootstrap-servers: localhost:9093
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: user-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.keycloak.userservice.event
 
 keycloak:
-  auth-server-url: http://localhost:8180
+  auth-server-url: http://localhost:8181
   realm: user-auth
   resource: user-auth-client
   credentials:

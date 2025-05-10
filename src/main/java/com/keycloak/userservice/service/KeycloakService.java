@@ -1,6 +1,7 @@
 package com.keycloak.userservice.service;
 
 import com.keycloak.userservice.dto.KeycloakUserDTO;
+import com.keycloak.userservice.event.UserEventType;
 import com.keycloak.userservice.util.CreatedResponseUtil;
 import com.keycloak.userservice.util.DistributedLockUtil;
 import jakarta.ws.rs.core.Response;
@@ -21,6 +22,7 @@ public class KeycloakService {
     private final Keycloak keycloak;
     private final String realm;
     private final DistributedLockUtil lockUtil;
+    private final UserEventService userEventService;
 
     private static final String CREATE_USER_LOCK_PREFIX = "lock:create-user:";
     private static final String UPDATE_USER_LOCK_PREFIX = "lock:update-user:";
@@ -32,10 +34,12 @@ public class KeycloakService {
     public KeycloakService(
             Keycloak keycloak, 
             @Value("${keycloak.realm}") String realm,
-            DistributedLockUtil lockUtil) {
+            DistributedLockUtil lockUtil,
+            UserEventService userEventService) {
         this.keycloak = keycloak;
         this.realm = realm;
         this.lockUtil = lockUtil;
+        this.userEventService = userEventService;
     }
 
     public String createUser(KeycloakUserDTO userDTO) {
@@ -68,7 +72,7 @@ public class KeycloakService {
                 CredentialRepresentation passwordCred = new CredentialRepresentation();
                 passwordCred.setTemporary(false);
                 passwordCred.setType(CredentialRepresentation.PASSWORD);
-                passwordCred.setValue(userDTO.getUsername() + "123"); // Default password pattern
+                passwordCred.setValue(userDTO.getUsername() + "123");
                 
                 UserResource userResource = keycloak.realm(realm).users().get(userId);
                 userResource.resetPassword(passwordCred);
@@ -91,7 +95,17 @@ public class KeycloakService {
         String lockKey = UPDATE_USER_LOCK_PREFIX + userId;
         
         lockUtil.executeWithLock(lockKey, () -> {
-            UserRepresentation user = new UserRepresentation();
+            UserRepresentation user = keycloak.realm(realm).users().get(userId).toRepresentation();
+            
+
+            Map<String, Object> oldValues = new HashMap<>();
+            oldValues.put("email", user.getEmail());
+            oldValues.put("firstName", user.getFirstName());
+            oldValues.put("lastName", user.getLastName());
+            oldValues.put("enabled", user.isEnabled());
+            oldValues.put("emailVerified", user.isEmailVerified());
+            oldValues.put("attributes", user.getAttributes());
+            
             user.setEmail(userDTO.getEmail());
             user.setFirstName(userDTO.getFirstName());
             user.setLastName(userDTO.getLastName());
@@ -99,30 +113,38 @@ public class KeycloakService {
             user.setEmailVerified(userDTO.getEmailVerified());
             
             Map<String, List<String>> attributes = new HashMap<>();
-            
             if (userDTO.getPhoneNumber() != null) {
                 attributes.put("phoneNumber", Collections.singletonList(userDTO.getPhoneNumber()));
             }
-            
             if (userDTO.getPreferences() != null) {
                 attributes.put("preferences", Collections.singletonList(userDTO.getPreferences()));
             }
-            
             user.setAttributes(attributes);
             
-            UserResource userResource = keycloak.realm(realm).users().get(userId);
-            userResource.update(user);
-            
-            if (userDTO.getRoles() != null) {
-                List<RoleRepresentation> allRoles = userResource.roles().realmLevel().listAll();
-                userResource.roles().realmLevel().remove(allRoles);
-                
-                List<RoleRepresentation> newRoles = userDTO.getRoles().stream()
-                        .map(roleName -> keycloak.realm(realm).roles().get(roleName).toRepresentation())
-                        .toList();
-                
-                userResource.roles().realmLevel().add(newRoles);
+            keycloak.realm(realm).users().get(userId).update(user);
+
+
+            Map<String, Object> changes = new HashMap<>();
+            if (!Objects.equals(oldValues.get("email"), userDTO.getEmail())) {
+                changes.put("email", userDTO.getEmail());
             }
+            if (!Objects.equals(oldValues.get("firstName"), userDTO.getFirstName())) {
+                changes.put("firstName", userDTO.getFirstName());
+            }
+            if (!Objects.equals(oldValues.get("lastName"), userDTO.getLastName())) {
+                changes.put("lastName", userDTO.getLastName());
+            }
+            if (!Objects.equals(oldValues.get("enabled"), userDTO.getEnabled())) {
+                changes.put("enabled", userDTO.getEnabled());
+            }
+            if (!Objects.equals(oldValues.get("emailVerified"), userDTO.getEmailVerified())) {
+                changes.put("emailVerified", userDTO.getEmailVerified());
+            }
+            if (!Objects.equals(oldValues.get("attributes"), attributes)) {
+                changes.put("attributes", attributes);
+            }
+
+            userEventService.sendUserEvent(UserEventType.PROFILE_UPDATED, userId, changes);
         });
     }
 
@@ -130,7 +152,13 @@ public class KeycloakService {
         String lockKey = DELETE_USER_LOCK_PREFIX + userId;
         
         lockUtil.executeWithLock(lockKey, () -> {
+
+            UserRepresentation user = keycloak.realm(realm).users().get(userId).toRepresentation();
+            
             keycloak.realm(realm).users().delete(userId);
+
+            userEventService.sendUserEvent(UserEventType.USER_DELETED, userId, 
+                Map.of("username", user.getUsername(), "email", user.getEmail()));
         });
     }
 
@@ -164,6 +192,9 @@ public class KeycloakService {
                     .toList();
             
             userDTO.setRoles(roles);
+
+            userEventService.sendUserEvent(UserEventType.PROFILE_VIEWED, userId, 
+                Map.of("viewedBy", "SYSTEM"));
             
             return userDTO;
         });
@@ -202,6 +233,49 @@ public class KeycloakService {
                         return userDTO;
                     })
                     .toList();
+        });
+    }
+
+    public void updateUserRoles(String userId, List<String> roles) {
+        String lockKey = UPDATE_USER_LOCK_PREFIX + userId;
+        
+        lockUtil.executeWithLock(lockKey, () -> {
+
+            List<String> currentRoles = keycloak.realm(realm).users().get(userId).roles()
+                    .realmLevel().listAll().stream()
+                    .map(RoleRepresentation::getName)
+                    .toList();
+            
+
+            List<String> rolesToAdd = roles.stream()
+                    .filter(role -> !currentRoles.contains(role))
+                    .toList();
+            
+            List<String> rolesToRemove = currentRoles.stream()
+                    .filter(role -> !roles.contains(role))
+                    .toList();
+            
+
+            if (!rolesToAdd.isEmpty()) {
+                List<RoleRepresentation> rolesToAddRep = rolesToAdd.stream()
+                        .map(roleName -> keycloak.realm(realm).roles().get(roleName).toRepresentation())
+                        .toList();
+                keycloak.realm(realm).users().get(userId).roles().realmLevel().add(rolesToAddRep);
+                
+                userEventService.sendUserEvent(UserEventType.ROLE_ASSIGNED, userId, 
+                    Map.of("roles", rolesToAdd));
+            }
+            
+
+            if (!rolesToRemove.isEmpty()) {
+                List<RoleRepresentation> rolesToRemoveRep = rolesToRemove.stream()
+                        .map(roleName -> keycloak.realm(realm).roles().get(roleName).toRepresentation())
+                        .toList();
+                keycloak.realm(realm).users().get(userId).roles().realmLevel().remove(rolesToRemoveRep);
+                
+                userEventService.sendUserEvent(UserEventType.ROLE_REMOVED, userId, 
+                    Map.of("roles", rolesToRemove));
+            }
         });
     }
 } 
