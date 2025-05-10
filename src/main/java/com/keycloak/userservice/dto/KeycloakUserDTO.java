@@ -97,6 +97,14 @@ public class KeycloakUserDTO {
         this.roles = roles;
     }
 
+    public Map<String, List<String>> getAttributes() {
+        return attributes;
+    }
+
+    public void setAttributes(Map<String, List<String>> attributes) {
+        this.attributes = attributes;
+    }
+
     public String getPhoneNumber() {
         return phoneNumber;
     }
