@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.keycloak.userservice.grpc";
+
+package user;
+
+service UserService {
+  rpc GetMyProfile (GetMyProfileRequest) returns (UserProfile);
+  rpc UpdateMyProfile (UpdateMyProfileRequest) returns (Empty);
+  rpc DeactivateMyProfile (DeactivateMyProfileRequest) returns (Empty);
+  rpc GetAllUsers (GetAllUsersRequest) returns (UserList);
+  rpc CreateUser (CreateUserRequest) returns (CreateUserResponse);
+  rpc UpdateUser (UpdateUserRequest) returns (Empty);
+  rpc DeleteUser (DeleteUserRequest) returns (Empty);
+}
+
+message GetMyProfileRequest {
+  string user_id = 1;
+}
+
+message UpdateMyProfileRequest {
+  string user_id = 1;
+  UserProfile profile = 2;
+}
+
+message DeactivateMyProfileRequest {
+  string user_id = 1;
+}
+
+message GetAllUsersRequest {}
+
+message CreateUserRequest {
+  UserProfile profile = 1;
+}
+
+message CreateUserResponse {
+  string user_id = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  UserProfile profile = 2;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+message UserProfile {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+  bool enabled = 6;
+  bool email_verified = 7;
+  repeated string roles = 8;
+  map<string, string> attributes = 9;
+  string phone_number = 10;
+  string preferences = 11;
+}
+
+message UserList {
+  repeated UserProfile users = 1;
+}
+
+message Empty {} 
